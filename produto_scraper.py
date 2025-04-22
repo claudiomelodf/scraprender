@@ -52,17 +52,72 @@ class ProdutoScraper:
             nome_produto = soup.select_one('h1') or soup.select_one('.product-name')
             nome_produto = nome_produto.text.strip() if nome_produto else self.extrair_nome_produto_da_url(url)
             
-            # Extrair preço
-            preco_element = soup.select_one('.product-price') or soup.select_one('.price-new')
-            preco = preco_element.text.strip() if preco_element else "Preço não disponível"
+            # Extrair preço - VERSÃO MELHORADA
+            preco = "Preço não disponível"
+            
+            # Método 1: Seletores específicos
+            preco_element = soup.select_one('.product-price') or soup.select_one('.price-new') or soup.select_one('span[itemprop="price"]')
+            if preco_element:
+                preco_text = preco_element.text.strip()
+                preco_match = re.search(r'R\$\s*[\d.,]+', preco_text)
+                if preco_match:
+                    preco = preco_match.group(0)
+                else:
+                    preco = preco_text
+            
+            # Método 2: Busca por texto contendo R$
+            if preco == "Preço não disponível":
+                for element in soup.find_all(text=True):
+                    if 'R$' in element and not '--PRODUTO_PRECO' in element:
+                        preco_match = re.search(r'R\$\s*[\d.,]+', element)
+                        if preco_match:
+                            preco = preco_match.group(0)
+                            break
+            
+            # Método 3: Busca por elementos com R$ no texto
+            if preco == "Preço não disponível":
+                for element in soup.find_all(['span', 'div', 'p', 'strong']):
+                    if element.text and 'R$' in element.text and not '--PRODUTO_PRECO' in element.text:
+                        preco_match = re.search(r'R\$\s*[\d.,]+', element.text)
+                        if preco_match:
+                            preco = preco_match.group(0)
+                            break
             
             # Extrair código do produto
+            codigo = ""
             codigo_element = soup.find(string=re.compile('Código:'))
-            codigo = codigo_element.next_element.strip() if codigo_element else "Não informado"
+            if codigo_element:
+                codigo_next = codigo_element.next_element
+                if codigo_next:
+                    codigo = codigo_next.strip()
+            
+            # Se não encontrou pelo método acima, tenta outro método
+            if not codigo:
+                codigo_element = soup.select_one('.product-code') or soup.select_one('.sku')
+                if codigo_element:
+                    codigo = codigo_element.text.strip()
+                    # Remover prefixos comuns
+                    codigo = re.sub(r'^(Código:|SKU:|Ref:)\s*', '', codigo)
             
             # Extrair disponibilidade
+            disponibilidade = "Não informado"
             disponibilidade_element = soup.find(string=re.compile('Estoque:'))
-            disponibilidade = "Disponível" if disponibilidade_element and "Disponível" in disponibilidade_element.parent.text else "Não informado"
+            if disponibilidade_element:
+                disponibilidade_text = disponibilidade_element.parent.text if disponibilidade_element.parent else disponibilidade_element
+                if "Disponível" in disponibilidade_text:
+                    disponibilidade = "Disponível"
+                elif "Indisponível" in disponibilidade_text or "Esgotado" in disponibilidade_text:
+                    disponibilidade = "Indisponível"
+            
+            # Se não encontrou pelo método acima, tenta outro método
+            if disponibilidade == "Não informado":
+                disponibilidade_element = soup.select_one('.stock') or soup.select_one('.availability')
+                if disponibilidade_element:
+                    disponibilidade_text = disponibilidade_element.text.strip().lower()
+                    if "disponível" in disponibilidade_text:
+                        disponibilidade = "Disponível"
+                    elif "indisponível" in disponibilidade_text or "esgotado" in disponibilidade_text:
+                        disponibilidade = "Indisponível"
             
             # Extrair descrição
             descricao_element = soup.select_one('.product-description') or soup.select_one('.tab-content')
@@ -79,8 +134,23 @@ class ProdutoScraper:
             specs_elements = soup.select('li') or soup.select('.product-features li')
             for spec in specs_elements:
                 spec_text = spec.text.strip()
-                if spec_text and len(spec_text) > 5 and '-' in spec_text:
+                if spec_text and len(spec_text) > 5 and '-' in spec_text and not '--PRODUTO_' in spec_text:
                     especificacoes.append(spec_text)
+            
+            # Filtrar especificações para remover placeholders
+            especificacoes = [spec for spec in especificacoes if not '--PRODUTO_' in spec]
+            
+            # Adicionar especificações extras se encontradas
+            extra_specs = []
+            for element in soup.select('.product-features') or soup.select('.specifications'):
+                for item in element.select('tr') or element.select('li'):
+                    item_text = item.text.strip()
+                    if item_text and not item_text in especificacoes and not '--PRODUTO_' in item_text:
+                        extra_specs.append(item_text)
+            
+            # Adicionar especificações extras se houver
+            if extra_specs:
+                especificacoes.extend(extra_specs)
             
             # Montar resultado
             resultado = {
