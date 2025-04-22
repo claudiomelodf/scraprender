@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: produto-scraper
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn webhook_handler:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.x
+    healthCheckPath: /health
