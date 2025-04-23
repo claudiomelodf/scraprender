@@ -34,6 +34,54 @@ def get_produto():
         mimetype='application/json'
     )
 
+@app.route('/produto_tabular', methods=['GET'])
+def get_produto_tabular():
+    """Endpoint para extrair informações de um produto em formato tabular (tipo Excel)"""
+    url = request.args.get('url')
+    if not url:
+        return jsonify({"status": "erro", "mensagem": "URL não fornecida"}), 400
+    
+    info_produto = scraper.extrair_info_ciainfor(url)
+    
+    # Organizar dados em formato tabular
+    dados_tabulares = {
+        "colunas": ["Nome", "Preço", "Disponibilidade", "Código", "URL"],
+        "dados": [
+            [
+                info_produto.get("nome", ""),
+                info_produto.get("preco", ""),
+                info_produto.get("disponibilidade", ""),
+                info_produto.get("codigo", ""),
+                info_produto.get("url", "")
+            ]
+        ]
+    }
+    
+    # Adicionar especificações como colunas adicionais, se existirem
+    if "especificacoes" in info_produto and info_produto["especificacoes"]:
+        dados_tabulares["especificacoes"] = {
+            "colunas": ["Especificação", "Valor"],
+            "dados": []
+        }
+        
+        for spec in info_produto["especificacoes"]:
+            if ":" in spec:
+                chave, valor = spec.split(":", 1)
+                dados_tabulares["especificacoes"]["dados"].append([chave.strip(), valor.strip()])
+            else:
+                dados_tabulares["especificacoes"]["dados"].append([spec, ""])
+    
+    # Configurar a resposta JSON para não escapar caracteres Unicode
+    return Response(
+        json.dumps({
+            "status": "sucesso",
+            "dados_tabulares": dados_tabulares,
+            "dados_produto": info_produto
+        }, ensure_ascii=False),
+        status=200,
+        mimetype='application/json'
+    )
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Endpoint para processar webhooks do Whaticket"""
