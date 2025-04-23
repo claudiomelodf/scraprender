@@ -1,99 +1,68 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify
-import logging
-import os
+import json
+from flask import Flask, request, jsonify, Response
 from produto_scraper import ProdutoScraper
-
-# Configuração de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("webhook.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 scraper = ProdutoScraper()
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """
-    Endpoint para receber mensagens de webhook e processar informações de produtos
-    """
-    try:
-        data = request.json
-        logger.info(f"Webhook recebido: {data}")
-        
-        # Extrair a mensagem do webhook (ajuste conforme a estrutura do seu webhook)
-        if 'message' in data:
-            mensagem = data['message']
-        elif 'text' in data:
-            mensagem = data['text']
-        else:
-            return jsonify({"status": "erro", "mensagem": "Formato de mensagem não reconhecido"}), 400
-        
-        # Processar a mensagem para extrair informações do produto
-        resultado = scraper.processar_mensagem(mensagem)
-        
-        # Formatar a resposta
-        resposta = scraper.formatar_resposta(resultado)
-        
-        # Retornar a resposta formatada
-        return jsonify({
-            "status": "sucesso",
-            "resposta": resposta,
-            "dados_produto": resultado
-        })
-        
-    except Exception as e:
-        logger.error(f"Erro ao processar webhook: {e}")
-        return jsonify({"status": "erro", "mensagem": str(e)}), 500
-
-@app.route('/produto', methods=['GET'])
-def produto():
-    """
-    Endpoint para consultar informações de um produto diretamente pela URL
-    """
-    try:
-        url = request.args.get('url')
-        if not url:
-            return jsonify({"status": "erro", "mensagem": "Parâmetro 'url' é obrigatório"}), 400
-        
-        # Extrair informações do produto
-        if "ciainfor.com.br" in url:
-            resultado = scraper.extrair_info_ciainfor(url)
-        else:
-            return jsonify({"status": "erro", "mensagem": "Domínio não suportado"}), 400
-        
-        # Formatar a resposta
-        resposta = scraper.formatar_resposta(resultado)
-        
-        # Retornar a resposta formatada
-        return jsonify({
-            "status": "sucesso",
-            "resposta": resposta,
-            "dados_produto": resultado
-        })
-        
-    except Exception as e:
-        logger.error(f"Erro ao processar consulta de produto: {e}")
-        return jsonify({"status": "erro", "mensagem": str(e)}), 500
-
 @app.route('/health', methods=['GET'])
-def health():
-    """
-    Endpoint para verificar se o serviço está funcionando
-    """
+def health_check():
+    """Endpoint para verificar se o serviço está online"""
     return jsonify({"status": "online"})
 
-if __name__ == "__main__":
-    # Obter porta do ambiente ou usar 5000 como padrão
-    port = int(os.environ.get("PORT", 5000))
+@app.route('/produto', methods=['GET'])
+def get_produto():
+    """Endpoint para extrair informações de um produto a partir da URL"""
+    url = request.args.get('url')
+    if not url:
+        return jsonify({"status": "erro", "mensagem": "URL não fornecida"}), 400
     
-    # Iniciar o servidor Flask
-    app.run(host="0.0.0.0", port=port, debug=False)
+    info_produto = scraper.extrair_info_ciainfor(url)
+    resposta = scraper.formatar_resposta(info_produto)
+    
+    # Configurar a resposta JSON para não escapar caracteres Unicode
+    return Response(
+        json.dumps({
+            "status": "sucesso",
+            "resposta": resposta,
+            "dados_produto": info_produto
+        }, ensure_ascii=False),
+        status=200,
+        mimetype='application/json'
+    )
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Endpoint para processar webhooks do Whaticket"""
+    try:
+        data = request.json
+        mensagem = data.get('message', '')
+        
+        resultado = scraper.processar_mensagem(mensagem)
+        resposta = scraper.formatar_resposta(resultado)
+        
+        # Configurar a resposta JSON para não escapar caracteres Unicode
+        return Response(
+            json.dumps({
+                "status": "sucesso",
+                "resposta": resposta,
+                "dados_produto": resultado
+            }, ensure_ascii=False),
+            status=200,
+            mimetype='application/json'
+        )
+    except Exception as e:
+        return Response(
+            json.dumps({
+                "status": "erro",
+                "mensagem": f"Erro ao processar webhook: {str(e)}"
+            }, ensure_ascii=False),
+            status=500,
+            mimetype='application/json'
+        )
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
